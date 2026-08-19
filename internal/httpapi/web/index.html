@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>任务调度看板</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div id="app-shell">
+  <header class="app-header">
+    <div>
+      <h1>任务调度看板</h1>
+      <p id="connection-state">正在连接</p>
+    </div>
+    <div class="header-actions">
+      <span id="last-updated">--</span>
+      <button id="refresh-button" class="button secondary" type="button">刷新</button>
+      <button id="open-claim-demo" class="button secondary" type="button">验证并发认领</button>
+      <button id="open-create" class="button primary" type="button">新建任务</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="summary" aria-label="任务统计">
+      <div><strong id="metric-total">0</strong><span>全部</span></div>
+      <div><strong id="metric-pending">0</strong><span>等待</span></div>
+      <div><strong id="metric-active">0</strong><span>处理中</span></div>
+      <div><strong id="metric-finished">0</strong><span>已结束</span></div>
+    </section>
+
+    <div class="workspace">
+      <section class="task-section">
+        <div class="section-heading">
+          <h2>任务</h2>
+          <span id="task-count">0 条记录</span>
+        </div>
+        <div class="table-shell">
+          <table>
+            <thead>
+              <tr>
+                <th>任务</th>
+                <th>组</th>
+                <th>状态</th>
+                <th>Worker</th>
+                <th>当前步骤</th>
+                <th>当前参数</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="task-rows">
+              <tr><td class="empty" colspan="7">暂无任务</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <nav class="pagination" aria-label="任务分页">
+          <button id="previous-page" class="icon-button" type="button" aria-label="上一页" title="上一页">&#8592;</button>
+          <span id="page-range">0 / 0</span>
+          <button id="next-page" class="icon-button" type="button" aria-label="下一页" title="下一页">&#8594;</button>
+        </nav>
+      </section>
+
+      <aside class="activity-section" aria-label="运行日志">
+        <div class="activity-heading">
+          <div><span class="live-dot"></span><h2>运行日志</h2></div>
+          <span>最近 60 条</span>
+        </div>
+        <div id="activity-log" class="activity-log" aria-live="polite">
+          <div class="activity-empty">暂无运行日志</div>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <dialog id="create-dialog">
+    <form id="create-form">
+      <header class="dialog-header">
+        <div>
+          <h2>新建任务</h2>
+          <p>配置客户组、默认参数和执行步骤</p>
+        </div>
+        <button id="close-create" class="icon-button" type="button" aria-label="关闭" title="关闭">&times;</button>
+      </header>
+
+      <div class="dialog-body">
+        <section class="form-section">
+          <div class="form-section-heading">
+            <div><span class="level">L2</span><h3>客户组</h3></div>
+          </div>
+          <label class="name-field">组名称<input id="group-name" name="group_name" value="demo-group" autocomplete="off" required></label>
+          <div class="parameter-heading"><span>覆盖参数</span><button class="text-button" data-add-param="group-parameters" type="button">添加参数</button></div>
+          <div id="group-parameters" class="parameter-list"></div>
+        </section>
+
+        <section class="form-section">
+          <div class="form-section-heading">
+            <div><span class="level">L1</span><h3>任务默认参数</h3></div>
+            <button class="text-button" data-add-param="base-parameters" type="button">添加参数</button>
+          </div>
+          <div id="base-parameters" class="parameter-list"></div>
+        </section>
+
+        <section class="form-section steps-section">
+          <div class="form-section-heading">
+            <div><span class="level">L3</span><h3>执行步骤</h3></div>
+            <button id="add-step" class="button secondary" type="button">添加 Step</button>
+          </div>
+          <div id="step-editors" class="step-editors"></div>
+        </section>
+      </div>
+
+      <footer class="dialog-footer">
+        <span id="form-error" role="alert"></span>
+        <div>
+          <button id="cancel-create" class="button secondary" type="button">取消</button>
+          <button class="button primary" type="submit">创建任务</button>
+        </div>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="claim-dialog">
+    <div class="claim-dialog-shell">
+      <header class="dialog-header">
+        <div>
+          <h2>5 Worker 并发认领</h2>
+          <p>同时争抢同一个 pending 任务</p>
+        </div>
+        <button id="close-claim-demo" class="icon-button" type="button" aria-label="关闭" title="关闭">&times;</button>
+      </header>
+
+      <div class="report-body">
+        <section class="concurrency-metrics" aria-label="并发认领结果">
+          <div><strong id="claim-worker-count">5</strong><span>并发 Worker</span></div>
+          <div><strong id="claim-start-spread">--</strong><span>开始时间差</span></div>
+          <div><strong id="claim-winner">--</strong><span>认领成功</span></div>
+          <div><strong id="claim-owner-count">--</strong><span>最终 Owner</span></div>
+        </section>
+        <div class="claim-heading">
+          <span>Worker</span><span>认领结果</span><span>DB Session</span><span>耗时</span>
+        </div>
+        <div id="claim-stream" class="claim-stream" aria-live="polite"></div>
+        <div id="claim-verdict" class="report-verdict waiting">
+          <span class="verdict-mark"></span>
+          <div><strong>准备竞争</strong><span>5 个 Worker 将同时请求同一个任务</span></div>
+        </div>
+      </div>
+
+      <footer class="dialog-footer report-footer">
+        <span>数据库行锁：FOR UPDATE</span>
+        <button id="finish-claim-demo" class="button primary" type="button">完成</button>
+      </footer>
+    </div>
+  </dialog>
+
+  <dialog id="report-dialog">
+    <div class="report-dialog-shell">
+      <header class="dialog-header">
+        <div>
+          <h2>5 路并发完成上报</h2>
+          <p id="report-target">Task -- / Step --</p>
+        </div>
+        <button id="close-report" class="icon-button" type="button" aria-label="关闭" title="关闭">&times;</button>
+      </header>
+
+      <div class="report-body">
+        <section class="concurrency-metrics" aria-label="并发验证结果">
+          <div><strong id="report-request-count">5</strong><span>同时发送</span></div>
+          <div><strong id="report-start-spread">--</strong><span>发送时间差</span></div>
+          <div><strong id="report-duplicate-count">--</strong><span>重复去重</span></div>
+          <div><strong id="report-log-count">--</strong><span>数据库日志</span></div>
+        </section>
+        <div class="request-heading">
+          <span>请求</span><span>状态</span><span>服务端接收</span><span>耗时</span>
+        </div>
+        <div id="request-stream" class="request-stream" aria-live="polite"></div>
+        <div id="report-verdict" class="report-verdict waiting">
+          <span class="verdict-mark"></span>
+          <div><strong>准备发送</strong><span>5 个请求将从浏览器同时发出</span></div>
+        </div>
+      </div>
+
+      <footer class="dialog-footer report-footer">
+        <span>唯一约束：task_id + step_position</span>
+        <button id="finish-report" class="button primary" type="button">完成</button>
+      </footer>
+    </div>
+  </dialog>
+
+  </div>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="/app.js" defer></script>
+</body>
+</html>

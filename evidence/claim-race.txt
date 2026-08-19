@@ -1,0 +1,10 @@
+Command:
+go run ./cmd/claim-race -database-url 'postgres://taskboard:taskboard@localhost:54329/taskboard?sslmode=disable' -workers 10 -tasks 250
+
+Result (2026-08-19):
+OS processes: 10
+Tasks attacked: 250
+Total claims: 250
+Unique tasks claimed: 250
+Duplicate claims: 0
+RESULT: PASS - every task had exactly one owner

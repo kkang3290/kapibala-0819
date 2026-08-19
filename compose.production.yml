@@ -1,0 +1,146 @@
+name: taskboard
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "5"
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: taskboard
+      POSTGRES_USER: taskboard
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U taskboard -d taskboard"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    logging: *default-logging
+    deploy:
+      resources:
+        limits: {cpus: "1.0", memory: 768M}
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - taskboard-data:/var/lib/postgresql/data
+    networks: [backend]
+
+  app:
+    build: .
+    environment:
+      ADDRESS: :8080
+      DATABASE_URL_FILE: /run/secrets/database_url
+      TASK_RETENTION: ${TASK_RETENTION:-720h}
+      RETENTION_INTERVAL: ${RETENTION_INTERVAL:-10m}
+    secrets: [database_url]
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz >/dev/null"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    read_only: true
+    tmpfs: [/tmp]
+    restart: unless-stopped
+    logging: *default-logging
+    deploy:
+      resources:
+        limits: {cpus: "0.5", memory: 256M}
+    security_opt: [no-new-privileges:true]
+    networks: [backend]
+
+  worker:
+    build: .
+    entrypoint: ["/worker"]
+    environment:
+      DATABASE_URL_FILE: /run/secrets/database_url
+      STEP_DELAY: ${STEP_DELAY:-15s}
+      POLL_INTERVAL: ${POLL_INTERVAL:-1s}
+      LEASE_DURATION: ${LEASE_DURATION:-30s}
+      HEARTBEAT_INTERVAL: ${HEARTBEAT_INTERVAL:-10s}
+    secrets: [database_url]
+    depends_on:
+      db:
+        condition: service_healthy
+    read_only: true
+    tmpfs: [/tmp]
+    restart: unless-stopped
+    logging: *default-logging
+    deploy:
+      resources:
+        limits: {cpus: "0.5", memory: 256M}
+    security_opt: [no-new-privileges:true]
+    networks: [backend]
+
+  backup:
+    image: postgres:16-alpine
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        while true; do
+          timestamp="$$(date -u +%Y%m%dT%H%M%SZ)"
+          export PGPASSWORD="$$(cat /run/secrets/postgres_password)"
+          pg_dump -h db -U taskboard -d taskboard -Fc -f /backups/.taskboard.dump.tmp
+          mv /backups/.taskboard.dump.tmp "/backups/taskboard-$${timestamp}.dump"
+          find /backups -name 'taskboard-*.dump' -type f -mtime +${BACKUP_RETENTION_DAYS:-14} -delete
+          sleep ${BACKUP_INTERVAL_SECONDS:-86400}
+        done
+    secrets: [postgres_password]
+    depends_on:
+      db:
+        condition: service_healthy
+    read_only: true
+    tmpfs: [/tmp]
+    restart: unless-stopped
+    logging: *default-logging
+    deploy:
+      resources:
+        limits: {cpus: "0.5", memory: 256M}
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - backup-data:/backups
+    networks: [backend]
+
+  caddy:
+    image: caddy:2-alpine
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
+    logging: *default-logging
+    deploy:
+      resources:
+        limits: {cpus: "0.5", memory: 256M}
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [backend]
+
+networks:
+  backend:
+
+secrets:
+  postgres_password:
+    file: ${POSTGRES_PASSWORD_FILE:-./secrets/postgres_password.txt}
+  database_url:
+    file: ${DATABASE_URL_FILE:-./secrets/database_url.txt}
+
+volumes:
+  taskboard-data:
+  backup-data:
+  caddy-data:
+  caddy-config:
